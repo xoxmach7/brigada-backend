@@ -1,37 +1,38 @@
-const express = require('express');
-const morgan = require('morgan');
-const cors = require('cors');
-require('dotenv').config();
+import express from 'express';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import morgan from 'morgan';
+import taskRoutes from './routes/taskRoutes.js'; // Важно: добавляем .js в конце пути
 
-const taskRoutes = require('./routes/taskRoutes');
-const errorHandler = require('./middleware/errorHandler'); // Перенесли импорт вверх
+// Настройка переменных окружения
+dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
-// --- 1. MIDDLEWARES ---
+// Middleware
 app.use(cors());
-app.use(morgan('dev'));
-app.use(express.json());
+app.use(express.json()); // Для работы с JSON в теле запроса
+app.use(morgan('dev'));  // Для красивых логов запросов в консоли
 
-// --- 2. ROUTES ---
+// Маршруты (Routes)
 app.use('/api/tasks', taskRoutes);
 
-// --- 3. 404 HANDLER ---
-// Сработает, если ни один роут выше не подошел
-app.use((req, res, next) => {
-    res.status(404).json({ error: "Маршрут не найден в системе Бригады" });
+// Базовый маршрут для проверки
+app.get('/', (req, res) => {
+    res.send('🚀 API "Бригады" (Текстиль) работает в режиме ES Modules!');
 });
 
-// --- 4. ERROR HANDLER (Strictly Last!) ---
-// Сюда попадают все ошибки из try/catch ваших контроллеров
-app.use(errorHandler);
+// Глобальный обработчик ошибок
+app.use((err, req, res, next) => {
+    console.error('💥 Произошла ошибка на сервере:', err.stack);
+    res.status(500).json({ message: 'Что-то пошло не так на сервере!' });
+});
 
-// --- 5. START SERVER ---
-const PORT = process.env.PORT || 5000;
+// Запуск сервера
 app.listen(PORT, () => {
-    console.log(`-----------------------------------------`);
-    console.log(`🚀 СЕРВЕР "БРИГАДЫ" ЗАПУЩЕН`);
-    console.log(`📡 ПОРТ: ${PORT}`);
+    console.log(`-------------------------------------------`);
+    console.log(`🚀 СЕРВЕР "БРИГАДЫ" ЗАПУЩЕН НА ПОРТУ ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api/tasks`);
-    console.log(`-----------------------------------------`);
+    console.log(`-------------------------------------------`);
 });

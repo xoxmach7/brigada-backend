@@ -1,4 +1,5 @@
-import pool from '../db.js';
+// Поднимаемся на уровень выше и заходим в папку config
+import pool from '../config/db.js';
 
 // 1. ПОЛУЧЕНИЕ ЗАДАЧ (Видим кто за что отвечает)
 export const getTasks = async (req, res) => {
