@@ -1,102 +1,89 @@
-// Поднимаемся на уровень выше и заходим в папку config
 import pool from '../config/db.js';
 
-// 1. ПОЛУЧЕНИЕ ЗАДАЧ (Видим кто за что отвечает)
+// 1. ПОЛУЧЕНИЕ ВСЕХ ЗАКАЗОВ
 export const getTasks = async (req, res) => {
-    const { search, status } = req.query;
     try {
-        let query = `
-            SELECT t.*, w.name as worker_name, w.role as worker_role
-            FROM tasks t 
-            LEFT JOIN workers w ON t.worker_id = w.id 
-            WHERE 1=1
-        `;
-        let values = [];
-
-        if (search) {
-            query += ` AND (t.title ILIKE $${values.length + 1} OR t.description ILIKE $${values.length + 1})`;
-            values.push(`%${search}%`);
-        }
-
-        if (status) {
-            query += ` AND t.status = $${values.length + 1}`;
-            values.push(status);
-        }
-
-        query += ` ORDER BY t.id ASC`;
-
-        const result = await pool.query(query, values);
+        const result = await pool.query('SELECT * FROM tasks ORDER BY id DESC');
         res.json(result.rows);
     } catch (error) {
-        console.error("💥 Ошибка:", error);
+        console.error("💥 Ошибка получения:", error);
         res.status(500).json({ message: "Ошибка сервера" });
     }
 };
 
-// 2. СОЗДАНИЕ ЗАКАЗА (ЗАДАЧИ)
+// 2. СОЗДАНИЕ ЗАКАЗА + ЛОГИРОВАНИЕ
 export const createTask = async (req, res) => {
-    const { title, description, subtasks, priority, status, deadline, worker_id, extra_data } = req.body;
+    const { title, description, subtasks, priority, status } = req.body;
     try {
+        // Создаем задачу
         const query = `
-            INSERT INTO tasks (title, description, subtasks, priority, status, deadline, worker_id, extra_data)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO tasks (title, description, subtasks, priority, status)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *;
         `;
-        const values = [
-            title, 
-            description || '', 
-            JSON.stringify(subtasks || []), 
-            priority || 'medium', 
-            status || 'design', // Первый этап всегда Дизайн
-            deadline || null,
-            worker_id || null,
-            JSON.stringify(extra_data || {}) // Сюда пишем: ткань, замеры и т.д.
-        ];
+        const values = [title, description, JSON.stringify(subtasks || []), priority || 1, status || 'design'];
         const result = await pool.query(query, values);
-        res.status(201).json(result.rows[0]);
+        const newTask = result.rows[0];
+
+        console.log(`✅ Задача создана с ID: ${newTask.id}. Пытаюсь записать лог...`);
+
+        // Блок записи лога с проверкой ошибок
+        try {
+            await pool.query(
+                'INSERT INTO activity_log (task_id, action_type, new_value) VALUES ($1, $2, $3)',
+                [newTask.id, 'created', `Заказ "${newTask.title}" создан`]
+            );
+            console.log("🚀 ЛОГ УСПЕШНО ЗАПИСАН В БАЗУ");
+        } catch (logError) {
+            console.error("❌ ОШИБКА ПРИ ЗАПИСИ ЛОГА:", logError.message);
+        }
+
+        res.status(201).json(newTask);
     } catch (error) {
-        console.error("💥 Ошибка:", error);
+        console.error("💥 КРИТИЧЕСКАЯ ОШИБКА СОЗДАНИЯ:", error);
         res.status(500).json({ message: "Ошибка сервера" });
     }
 };
 
-// 3. ОБНОВЛЕНИЕ (Смена этапа производства)
+// 3. ОБНОВЛЕНИЕ + ЛОГИРОВАНИЕ СМЕНЫ СТАТУСА
 export const updateTask = async (req, res) => {
     const { id } = req.params;
-    const { title, description, is_completed, subtasks, priority, status, deadline, worker_id, extra_data } = req.body;
+    const { status, priority, title, description, subtasks } = req.body;
+
     try {
+        const oldData = await pool.query('SELECT status FROM tasks WHERE id = $1', [id]);
+        if (oldData.rows.length === 0) return res.status(404).json({ message: "Заказ не найден" });
+        const oldStatus = oldData.rows[0].status;
+
         const query = `
             UPDATE tasks 
-            SET 
-                title = COALESCE($1, title), 
-                description = COALESCE($2, description), 
-                is_completed = COALESCE($3, is_completed), 
-                subtasks = COALESCE($4, subtasks),
-                priority = COALESCE($5, priority),
-                status = COALESCE($6, status),
-                deadline = COALESCE($7, deadline),
-                worker_id = COALESCE($8, worker_id),
-                extra_data = COALESCE($9, extra_data)
-            WHERE id = $10
-            RETURNING *;
+            SET status = COALESCE($1, status), priority = COALESCE($2, priority),
+                title = COALESCE($3, title), description = COALESCE($4, description),
+                subtasks = COALESCE($5, subtasks)
+            WHERE id = $6 RETURNING *;
         `;
-        const values = [
-            title, description, is_completed, 
-            subtasks ? JSON.stringify(subtasks) : null,
-            priority, status, deadline, worker_id, 
-            extra_data ? JSON.stringify(extra_data) : null,
-            id
-        ];
+        const values = [status, priority, title, description, subtasks ? JSON.stringify(subtasks) : null, id];
         const result = await pool.query(query, values);
-        if (result.rows.length === 0) return res.status(404).json({ message: "Заказ не найден" });
+
+        if (status && status !== oldStatus) {
+            try {
+                await pool.query(
+                    'INSERT INTO activity_log (task_id, action_type, old_value, new_value) VALUES ($1, $2, $3, $4)',
+                    [id, 'status_change', oldStatus, status]
+                );
+                console.log(`✅ Статус изменен: ${oldStatus} -> ${status}`);
+            } catch (logError) {
+                console.error("❌ ОШИБКА ЛОГИРОВАНИЯ СТАТУСА:", logError.message);
+            }
+        }
         res.json(result.rows[0]);
     } catch (error) {
-        console.error("💥 Ошибка:", error);
+        console.error("💥 Ошибка обновления:", error);
         res.status(500).json({ message: "Ошибка сервера" });
     }
 };
 
-// 4. УДАЛЕНИЕ ЗАКАЗА
+// 4. УДАЛЕНИЕ
 export const deleteTask = async (req, res) => {
     const { id } = req.params;
     try {

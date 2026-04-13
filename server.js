@@ -2,9 +2,12 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import morgan from 'morgan';
-import taskRoutes from './routes/taskRoutes.js'; // Важно: добавляем .js в конце пути
+import pool from './config/db.js';
 
-// Настройка переменных окружения
+// Импорт роутов
+import taskRoutes from './routes/taskRoutes.js';
+import fabricRoutes from './routes/fabricRoutes.js'; // Новый роут для склада
+
 dotenv.config();
 
 const app = express();
@@ -12,27 +15,38 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(express.json()); // Для работы с JSON в теле запроса
-app.use(morgan('dev'));  // Для красивых логов запросов в консоли
+app.use(express.json());
+app.use(morgan('dev')); // Логирование запросов в терминале
 
-// Маршруты (Routes)
-app.use('/api/tasks', taskRoutes);
+// Маршруты API
+app.use('/api/tasks', taskRoutes);     // Управление заказами "Бригады"
+app.use('/api/fabrics', fabricRoutes); // Управление складом (вешалки/QR)
 
-// Базовый маршрут для проверки
+// Базовый эндпоинт для проверки
 app.get('/', (req, res) => {
-    res.send('🚀 API "Бригады" (Текстиль) работает в режиме ES Modules!');
+    res.send('🚀 Сервер "Бригады" и "Склада" активен!');
 });
 
-// Глобальный обработчик ошибок
-app.use((err, req, res, next) => {
-    console.error('💥 Произошла ошибка на сервере:', err.stack);
-    res.status(500).json({ message: 'Что-то пошло не так на сервере!' });
-});
+// Предотвращение автоматического завершения процесса (clean exit)
+setInterval(() => {}, 1000 * 60 * 60);
 
-// Запуск сервера
-app.listen(PORT, () => {
-    console.log(`-------------------------------------------`);
-    console.log(`🚀 СЕРВЕР "БРИГАДЫ" ЗАПУЩЕН НА ПОРТУ ${PORT}`);
-    console.log(`🔗 API: http://localhost:${PORT}/api/tasks`);
-    console.log(`-------------------------------------------`);
-});
+// Запуск сервера с проверкой базы
+const startServer = async () => {
+    try {
+        await pool.query('SELECT NOW()');
+        console.log('🐘 PostgreSQL подключен успешно');
+        
+        app.listen(PORT, () => {
+            console.log(`-------------------------------------------`);
+            console.log(`🚀 СЕРВЕР ЗАПУЩЕН НА ПОРТУ ${PORT}`);
+            console.log(`🔗 API Ткани: http://localhost:${PORT}/api/fabrics`);
+            console.log(`🔗 API Задачи: http://localhost:${PORT}/api/tasks`);
+            console.log(`-------------------------------------------`);
+        });
+    } catch (err) {
+        console.error('❌ ОШИБКА ПРИ СТАРТЕ СЕРВЕРА:', err.message);
+        process.exit(1);
+    }
+};
+
+startServer();

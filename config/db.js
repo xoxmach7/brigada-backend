@@ -13,6 +13,7 @@ const pool = new Pool({
     port: process.env.DB_PORT,
 });
 
+// Слушатель событий, чтобы мы видели, когда база проснулась
 pool.on('connect', () => {
     console.log('🐘 PostgreSQL подключен успешно');
 });
